@@ -164,7 +164,7 @@ def main():
                 df_sz = pd.DataFrame({"width": widths, "height": heights})
                 fig_2d = px.scatter(df_sz, x="width", y="height", 
                                    title="Image dimensions (Width vs Height)",
-                                   opacity=0.6, trendline="ols", size_max=10)
+                                   opacity=0.6, size_max=10)
                 st.plotly_chart(fig_2d, use_container_width=True)
 
             # Image formats
@@ -365,7 +365,7 @@ def main():
                             # Width vs Confidence scatter
                             fig_w_conf = px.scatter(df_res_conf, x="width", y="confidence",
                                                    title="Image Width vs Detection Confidence",
-                                                   trendline="ols", size_max=8,
+                                                   size_max=8,
                                                    color="confidence", color_continuous_scale="Greens")
                             fig_w_conf.update_yaxes(range=[0, 1])
                             st.plotly_chart(fig_w_conf, use_container_width=True)
@@ -374,7 +374,7 @@ def main():
                             # Height vs Confidence scatter
                             fig_h_conf = px.scatter(df_res_conf, x="height", y="confidence",
                                                    title="Image Height vs Detection Confidence",
-                                                   trendline="ols", size_max=8,
+                                                   size_max=8,
                                                    color="confidence", color_continuous_scale="Greens")
                             fig_h_conf.update_yaxes(range=[0, 1])
                             st.plotly_chart(fig_h_conf, use_container_width=True)
@@ -383,7 +383,7 @@ def main():
                         col_ar = st.columns(1)[0]
                         fig_ar_conf = px.scatter(df_res_conf, x="aspect_ratio", y="confidence",
                                                title="Aspect Ratio (Width/Height) vs Detection Confidence",
-                                               trendline="ols", size_max=8,
+                                               size_max=8,
                                                color="confidence", color_continuous_scale="Greens")
                         fig_ar_conf.update_yaxes(range=[0, 1])
                         st.plotly_chart(fig_ar_conf, use_container_width=True)
