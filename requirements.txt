@@ -4,5 +4,4 @@ numpy
 pandas
 plotly
 seaborn
-torch; extra == 'torch'
-torchvision; extra == 'torchvision'
+requests
