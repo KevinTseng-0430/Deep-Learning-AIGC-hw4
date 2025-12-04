@@ -2,7 +2,18 @@ from pathlib import Path
 from PIL import Image
 import random
 import io
+import os
 from typing import Tuple, Dict, List
+
+
+def is_streamlit_cloud() -> bool:
+    """Detect if running on Streamlit Cloud."""
+    return os.getenv("STREAMLIT_SERVER_HEADLESS") == "true"
+
+
+def is_local_deployment() -> bool:
+    """Detect if running locally."""
+    return not is_streamlit_cloud()
 
 
 def gather_dataset_stats(data_dir: Path) -> Dict:

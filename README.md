@@ -44,6 +44,8 @@ Streamlit web app for crested myna image browsing, analytics, and gallery manage
 - **Sanity tips:** Very small, narrow, or low-quality images tend to get lower scores; ensure source images are clear and reasonably sized.
 
 ## 6) Deployment & Usage
+
+### Local Setup
 - **Setup:**  
   ```bash
   python -m venv .venv
@@ -54,15 +56,35 @@ Streamlit web app for crested myna image browsing, analytics, and gallery manage
   ```bash
   streamlit run streamlit_app.py
   ```
-  - Sidebar toggle: choose “Upload image” or “Project data folder”.  
+  - Sidebar toggle: choose "Upload image" or "Project data folder".  
   - If using folder mode, set the path (default `data/`).  
   - If a compatible checkpoint is placed in `models/`, the app will try to use it; otherwise it sticks to the deterministic heuristic.
-- **Files of interest:**  
-  - `streamlit_app.py`: UI, tabs (Analytics, Gallery), charts (Plotly), selection logic, and scoring display.  
-  - `app_utils.py`: image loading, metadata/statistics, scoring heuristic, gallery helpers, and optional checkpoint detection.  
-  - `assets/style.css`: custom styling.  
-  - `requirements.txt`: dependencies for the app.
-- **Environment hygiene:** `.gitignore` excludes cache/OS artifacts; keep `data/` organized with class subfolders.
+
+### Cloud Deployment (Streamlit Cloud)
+**⚠️ Important:** The `data/` folder may not be accessible on Streamlit Cloud because it's not committed to GitHub by default.
+
+**✅ Recommended approach:**
+1. Deploy the app without committing `data/`
+2. Users upload images directly via the UI
+3. The app works seamlessly in cloud
+
+**For advanced setup** (e.g., including sample images in the repo, using cloud storage), see:
+- **[`CLOUD_SOLUTION_SUMMARY.md`](./CLOUD_SOLUTION_SUMMARY.md)** — Complete troubleshooting guide (start here!)
+- **[`DEPLOYMENT_GUIDE.md`](./DEPLOYMENT_GUIDE.md)** — Detailed deployment strategies
+- **[`QUICK_START_CLOUD.md`](./QUICK_START_CLOUD.md)** — 2-minute quick start
+
+### Files of Interest
+- `streamlit_app.py`: UI, tabs (Analytics, Gallery), charts (Plotly), selection logic, and scoring display.  
+- `app_utils.py`: image loading, metadata/statistics, scoring heuristic, gallery helpers, and optional checkpoint detection.  
+- `assets/style.css`: custom styling.  
+- `requirements.txt`: dependencies for the app.
+- `DEPLOYMENT_GUIDE.md`: **Comprehensive guide for deploying to Streamlit Cloud and handling data**.
+
+### Environment Hygiene
+`.gitignore` excludes cache/OS artifacts; keep `data/` organized with class subfolders. When deploying to cloud, either:
+- Use **image upload mode** (works everywhere, ⭐ recommended), or
+- Commit a **small sample dataset** to GitHub (< 50 images), or
+- Integrate **cloud storage** (GCS/S3) for production.
 
 ## User workflow
 1) Launch the app (`streamlit run streamlit_app.py`).  

@@ -9,11 +9,15 @@ from app_utils import (
     extract_image_metadata,
     compute_detailed_stats,
     try_load_torch_model,
+    is_streamlit_cloud,
+    is_local_deployment,
 )
 import io
 import base64
 import pandas as pd
 import plotly.express as px
+import requests
+from PIL import Image
 
 
 def inject_css():
@@ -32,6 +36,32 @@ def image_download_button(img, filename="image.png", button_text="Download image
     st.markdown(href, unsafe_allow_html=True)
 
 
+@st.cache_data
+def load_images_from_folder(folder_path: str):
+    """Load images from folder with error handling."""
+    try:
+        data_dir = Path(folder_path)
+        if not data_dir.exists():
+            return None, f"❌ Folder not found: {folder_path}"
+        
+        img_paths = list_images_in_folder(data_dir)
+        if not img_paths:
+            return None, f"⚠️ No images found in: {folder_path}"
+        
+        images = []
+        errors = []
+        for p in img_paths:
+            try:
+                img = load_pil_image(p)
+                images.append((p, img))
+            except Exception as e:
+                errors.append(f"Failed to load {p.name}: {str(e)}")
+        
+        return images, None
+    except Exception as e:
+        return None, f"❌ Error loading folder: {str(e)}"
+
+
 def main():
     st.set_page_config(page_title="Crested Myna Recognizer", layout="wide")
     inject_css()
@@ -45,19 +75,48 @@ def main():
     with st.sidebar:
         st.header("Data source")
         source = st.radio("Choose image source:", ("Upload image", "Project data folder"))
+        
+        data_dir = None
+        show_data_info = False
+        
         if source == "Project data folder":
-            data_dir = st.text_input("Data folder path", str(default_data_dir))
-            data_dir = Path(data_dir)
-        else:
-            data_dir = None
+            st.markdown("### Cloud Deployment Info 🌐")
+            if is_streamlit_cloud():
+                st.warning("""
+                ⚠️ **Running on Streamlit Cloud**
+                
+                The local `data/` folder is **not available** in cloud unless explicitly pushed to GitHub.
+                
+                **Recommended:** Use **"Upload image"** mode instead! ✨
+                """)
+                st.markdown("[📖 Full setup guide](https://github.com/KevinTseng-0430/Deep-Learning-AIGC-hw4/blob/main/DEPLOYMENT_GUIDE.md)")
+            else:
+                st.info("💻 Running locally — folder access should work fine!")
+            
+            custom_path = st.text_input("Enter data folder path:", "./data")
+            data_dir = Path(custom_path)
+            show_data_info = True
 
         st.markdown("---")
         st.header("Model")
         model_info = try_load_torch_model(Path(__file__).parent / "models")
         if model_info[0]:
-            st.success(f"PyTorch model found: {model_info[1]}")
+            st.success(f"✅ PyTorch model: {model_info[1]}")
         else:
-            st.info("No model found — using heuristic demo predictor.")
+            st.info("📊 Using heuristic demo predictor")
+        
+        st.markdown("---")
+        st.subheader("❓ Help & Support")
+        st.markdown("""
+        **Issues with project data folder?**
+        
+        See [DEPLOYMENT_GUIDE.md](https://github.com/KevinTseng-0430/Deep-Learning-AIGC-hw4/blob/main/DEPLOYMENT_GUIDE.md) for:
+        - Cloud deployment setup
+        - Data folder troubleshooting  
+        - Cloud storage integration
+        
+        **Quick tip:** Use "Upload image" mode on Streamlit Cloud for best results! 🚀
+        """)
 
     # Main layout with tabs: Analytics and Gallery
     tab_analytics, tab_gallery = st.tabs(["Analytics 📊", "Gallery 🖼️"])
@@ -71,24 +130,37 @@ def main():
             images = [("uploaded", img)]
     else:
         images = []
-        if data_dir and data_dir.exists():
-            img_paths = list_images_in_folder(data_dir)
-            for p in img_paths:
-                try:
-                    img = load_pil_image(p)
-                    images.append((p, img))
-                except Exception:
-                    continue
-        else:
-            st.warning(f"Data folder not found: {data_dir}")
+        if show_data_info and data_dir:
+            # Try to load from folder with better error handling
+            loaded_images, error_msg = load_images_from_folder(str(data_dir))
+            
+            if error_msg:
+                st.warning(error_msg)
+                
+                # Provide helpful context
+                if not data_dir.exists():
+                    st.markdown("""
+                    ### 💡 Troubleshooting
+                    - **Local deployment**: Make sure the `data/` folder exists with images
+                    - **Streamlit Cloud**: Upload images using the "Upload image" option instead
+                    - **GitHub integration**: Push your `data/` folder to your repository
+                    """)
+            else:
+                images = loaded_images or []
 
     # Analytics tab
     with tab_analytics:
         st.subheader("📊 Dataset overview")
-        if data_dir and data_dir.exists():
-            stats = compute_detailed_stats(data_dir)
-            
-            # Summary metrics row
+        if source == "Project data folder" and data_dir:
+            if data_dir.exists():
+                stats = compute_detailed_stats(data_dir)
+            else:
+                stats = None
+                st.error(f"Cannot access data folder: {data_dir}")
+        else:
+            stats = None
+        
+        if stats and stats.get("total_images", 0) > 0:
             col_m1, col_m2, col_m3, col_m4 = st.columns(4)
             with col_m1:
                 st.metric("Total images", stats.get("total_images", 0))
@@ -356,7 +428,50 @@ def main():
             df_summary = pd.DataFrame(summary_table)
             st.dataframe(df_summary, use_container_width=True)
         else:
-            st.info("Provide a valid `data/` folder to see dataset analytics.")
+            st.info("📤 **No data available**")
+            st.markdown("""
+            ### How to use the Analytics tab:
+            
+            **Option 1: Upload Images** (Recommended for Streamlit Cloud)
+            - Switch to "Upload image" in the sidebar
+            - Drag & drop your images
+            - Analytics will show predictions
+            
+            **Option 2: Project Data Folder** (Requires local setup)
+            - Ensure you have a `data/` folder with images
+            - **On Streamlit Cloud**: This won't work unless data is committed to GitHub
+            - **Locally**: Place images in `./data/crested_myna/` or `./data/other/`
+            - Then select "Project data folder" in the sidebar
+            
+            ### ❓ Why can't I see my data folder on Streamlit Cloud?
+            
+            Streamlit Cloud deploys from GitHub. The `data/` folder:
+            - May not be committed to your repository
+            - May be listed in `.gitignore`
+            - May be too large for GitHub
+            
+            ### ✅ Solution
+            
+            1. **For demo**: Use the image upload feature
+            2. **For production**: 
+               - Store images in cloud storage (Google Cloud Storage, AWS S3, etc.)
+               - Or commit a sample dataset to GitHub (max ~50-100 images recommended)
+            """)
+            
+            # Show sample setup instructions
+            with st.expander("📝 See how to set up local data folder"):
+                st.code("""
+# Create folder structure
+mkdir -p data/crested_myna
+mkdir -p data/other
+
+# Add your images
+# Copy Crested Myna images to data/crested_myna/
+# Copy other bird images to data/other/
+
+# Run locally
+streamlit run streamlit_app.py
+                """, language="bash")
 
     # Gallery tab
     with tab_gallery:
