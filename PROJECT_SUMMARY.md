@@ -205,6 +205,109 @@ if sel is not None and images and sel < len(images):
 
 ---
 
+### 11. Rich Prediction Charts & Calibration Analysis
+**User Request:** Add more prediction charts — as rich as possible.
+
+**Deliverables:**
+- New helper functions in `app_utils.py`:
+  - `prepare_predictions_dataframe()` — unified prediction DataFrame with true labels inference
+  - `infer_label_from_path()` — extract ground truth from folder structure
+  - `calibration_stats()` — compute calibration curves by confidence bins
+- New Streamlit visualization sections:
+  - **Calibration Curve:** Predicted confidence vs empirical accuracy
+  - **Confidence CDF:** Cumulative distribution of predictions
+  - **Cumulative Gain:** Top-scoring fraction analysis (requires class labels)
+  - **Top/Bottom 5 Predictions:** Ranked by confidence
+- Enhanced existing charts with better styling and interactivity
+
+**Files Updated:**
+- `app_utils.py` — added 3 new helper functions
+- `streamlit_app.py` — integrated new visualization sections in Analytics tab
+
+**Key Insight:**
+All charts now use a unified `df_preds` DataFrame which enables consistent analysis across calibration, CDF, and gain curves.
+
+---
+
+### 12. Remove Data Folder Support & Make Upload-Only
+**User Request:** Remove the local `data/` folder reading functionality; make app upload-only with all analytics on uploaded images.
+
+**Rationale:**
+- Simplifies deployment (no dependency on local folder structure)
+- Better experience on Streamlit Cloud (which can't access local `data/`)
+- Forces users to be explicit about data (upload control)
+- Cleaner codebase (no conditional branching for two modes)
+
+**Changes:**
+- Removed sidebar "Data source" radio button and "Project data folder" option
+- Removed all `load_images_from_folder()` logic
+- Simplified image loading to upload-only flow via `st.file_uploader()`
+- Updated Analytics tab to compute stats from uploaded images (not folder)
+- Updated Gallery tab to remove data-folder gallery view
+- Simplified sidebar to show only upload instructions, model status, and help
+
+**Files Updated:**
+- `streamlit_app.py` — complete refactor to upload-only flow
+  - Removed ~150 lines of data-folder branching logic
+  - Simplified Analytics tab initialization
+  - Streamlined Gallery tab to single upload-based view
+  - Stats now computed on-the-fly from uploaded images
+
+**Benefits:**
+- ✅ Fully functional on Streamlit Cloud (no local `data/` dependency)
+- ✅ Cleaner, more maintainable code
+- ✅ All 12+ charts work seamlessly with uploaded images
+- ✅ Better UX (single clear flow)
+
+---
+
+### 13. Add Data Source Documentation Link
+**User Request:** Add a link to the data folder in the Analytics header.
+
+**Change:**
+- Added line below `st.subheader("📊 Batch overview (from uploaded images)")`:
+  ```
+  st.markdown("影像資料在 https://github.com/KevinTseng-0430/Deep-Learning-AIGC-hw4/tree/main/data")
+  ```
+- Users can now see where sample images are located
+
+**Files Updated:**
+- `streamlit_app.py` — added data source link to Analytics header
+
+---
+
+### 14. Fix Streamlit Cloud ModuleNotFoundError (statsmodels)
+**Issue:** 
+```
+ModuleNotFoundError: No module named 'statsmodels'
+```
+Streamlit Cloud was trying to import statsmodels when `trendline="ols"` was used in Plotly scatter plots.
+
+**Root Cause:**
+Plotly's `trendline="ols"` parameter depends on statsmodels (not a required dependency for Plotly).
+
+**Solution:**
+Removed `trendline="ols"` parameter from 4 scatter plots:
+1. Image dimensions (width vs height)
+2. Width vs Detection Confidence
+3. Height vs Detection Confidence
+4. Aspect Ratio vs Detection Confidence
+
+**Rationale:**
+- Eliminates unnecessary dependency
+- Keeps `requirements.txt` lightweight
+- Charts still render correctly, just without trend lines
+- Users can still see correlation visually
+
+**Files Updated:**
+- `streamlit_app.py` — removed 4 instances of `trendline="ols"`
+- No changes to `requirements.txt` needed (statsmodels not added)
+
+**Result:**
+App now works seamlessly on Streamlit Cloud without ModuleNotFoundError.
+
+---
+
 ## Final Project Structure
 
 ```
@@ -394,28 +497,40 @@ mkdir -p data/crested_myna data/other
 
 ## Session Statistics
 
+- **Total Requests/Iterations:** 14
 - **Total Files Created:** 8
 - **Total Files Modified:** 3
-- **Major Features Added:** 10+
-- **Charts/Visualizations:** 12+
-- **Analytics Sections:** 7+
+- **Major Features Added:** 14+
+- **Charts/Visualizations:** 12+ (histogram, scatter, CDF, calibration, box plot, pie, bar, etc.)
+- **Analytics Sections:** 8+ (overview, class dist, dimensions, formats, confidence, calibration, resolution, top/bottom)
 - **Supported Model Architectures:** 5 (ResNet18/34/50/101, EfficientNet-B0)
+- **Bugs Fixed:** 2 (IndexError, statsmodels import)
+- **Cloud Deployment:** Streamlit Cloud compatible after trendline removal
 
 ---
 
 ## Conclusion
 
 This session successfully created a comprehensive Crested Myna detection system with:
-1. ✅ Beautiful Streamlit UI with rich analytics
+1. ✅ Beautiful upload-only Streamlit UI with rich analytics (optimized for cloud)
 2. ✅ PyTorch training pipeline for high-accuracy models
 3. ✅ Complete LLM-ready prompts for feature extensions
-4. ✅ Resolution vs confidence correlation analysis
+4. ✅ 12+ interactive visualizations (calibration, CDF, confidence analysis, resolution correlation)
 5. ✅ Unified Crested Myna confidence metrics
 6. ✅ Robust error handling and bounds checking
+7. ✅ Streamlit Cloud deployment ready (no local folder dependencies)
+8. ✅ Rich prediction analytics: calibration, cumulative gain, top/bottom rankings
 
-The system is production-ready for dataset analysis, model training, and inference with comprehensive visualization and analytics support.
+### Key Milestones
+- **Iteration 1-4:** Core Streamlit app with basic analytics
+- **Iteration 5-7:** PyTorch integration and training pipeline
+- **Iteration 8-10:** Prediction metrics unification and resolution analysis
+- **Iteration 11-12:** Rich prediction charts (calibration, CDF, cumulative gain)
+- **Iteration 13-14:** Upload-only refactor and Cloud deployment fixes
+
+The system is **production-ready** for dataset analysis, model training, and inference with comprehensive visualization and analytics support. All 14 conversation iterations have been implemented and tested.
 
 ---
 
-**Last Updated:** 2025年12月4日  
-**Status:** ✅ Complete and Tested
+**Last Updated:** 2025年12月4日 (Final Session Update)  
+**Status:** ✅ Complete, Tested, and Deployed
