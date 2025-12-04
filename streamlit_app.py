@@ -123,11 +123,19 @@ def main():
 
     # Load images depending on source
     if source == "Upload image":
-        uploaded = st.file_uploader("Upload an image", type=["jpg", "jpeg", "png"])
-        images = []
-        if uploaded:
-            img = load_pil_image(uploaded)
-            images = [("uploaded", img)]
+            uploaded_files = st.file_uploader(
+                "📤 Upload images (support multiple files)",
+                type=["jpg", "jpeg", "png"],
+                accept_multiple_files=True
+            )
+            images = []
+            if uploaded_files:
+                for uploaded_file in uploaded_files:
+                    try:
+                        img = load_pil_image(uploaded_file)
+                        images.append((uploaded_file.name, img))
+                    except Exception as e:
+                        st.warning(f"Failed to load {uploaded_file.name}: {str(e)}")
     else:
         images = []
         if show_data_info and data_dir:
@@ -475,48 +483,119 @@ streamlit run streamlit_app.py
 
     # Gallery tab
     with tab_gallery:
-        col1, col2 = st.columns([1, 2])
-
-        with col1:
-            st.subheader("Image gallery")
             if not images:
-                st.info("No images to show. Upload an image or provide a valid data folder path on the sidebar.")
+                st.info("📤 No images to show. Upload images or provide a valid data folder path on the sidebar.")
             else:
-                # optional class filter
-                class_filter = st.selectbox("Filter by class (if available)", options=["All"] + list(stats.get("class_counts", {}).keys()) if data_dir and data_dir.exists() else ["All"])
-                cols = st.columns(3)
-                for i, (path, img) in enumerate(images):
-                    # apply simple filter if classes are by parent folder name
-                    if class_filter != "All" and isinstance(path, Path) and path.parent.name != class_filter:
-                        continue
-                    with cols[i % 3]:
-                        caption = Path(path).name if path != "uploaded" else "uploaded"
-                        if st.button(f"Select: {caption}", key=f"sel_{i}"):
-                            st.session_state.selected = i
-                        st.image(img, use_container_width=True, caption=caption)
-
-        with col2:
-            st.subheader("Selected image")
-            sel = st.session_state.get("selected", 0) if images else None
-            # Validate index is within bounds
-            if sel is not None and images and sel < len(images):
-                path, img = images[sel]
-                st.image(img, caption=str(path), use_container_width=True)
-                st.markdown("**Prediction**")
-                if model_info[0]:
-                    pred_text, conf = predict_image_stub(img, model_info[2])
+                # Show different views based on source
+                if source == "Upload image":
+                    # Direct prediction grid for uploaded images
+                    st.subheader(f"🤖 Model Predictions ({len(images)} images)")
+                
+                    # Create prediction results
+                    predictions = []
+                    for idx, (path, img) in enumerate(images):
+                        if model_info[0]:
+                            pred_text, conf = predict_image_stub(img, model_info[2])
+                        else:
+                            pred_text, conf = predict_image_stub(img, None)
+                        predictions.append({
+                            "image": path,
+                            "label": pred_text,
+                            "confidence": f"{conf*100:.1f}%",
+                            "confidence_score": conf
+                        })
+                
+                    # Display predictions in a grid
+                    cols = st.columns(3)
+                    for idx, (path, img) in enumerate(images):
+                        pred = predictions[idx]
+                        with cols[idx % 3]:
+                            # Display image
+                            st.image(img, use_container_width=True)
+                        
+                            # Prediction badge
+                            conf_score = pred["confidence_score"]
+                            if conf_score > 0.7:
+                                badge_color = "🟢"
+                            elif conf_score > 0.4:
+                                badge_color = "🟡"
+                            else:
+                                badge_color = "🔴"
+                        
+                            st.markdown(f"**{badge_color} {pred['label']}**")
+                            st.markdown(f"Confidence: **{pred['confidence']}**")
+                        
+                            # Download button
+                            image_download_button(img, filename=f"{Path(path).stem}.png", button_text="⬇️ Download")
+                
+                    # Summary statistics for uploaded batch
+                    st.markdown("---")
+                    st.subheader("📊 Batch Summary")
+                    col_s1, col_s2, col_s3 = st.columns(3)
+                    with col_s1:
+                        avg_conf = sum(p["confidence_score"] for p in predictions) / len(predictions)
+                        st.metric("Average Confidence", f"{avg_conf*100:.1f}%")
+                    with col_s2:
+                        high_conf = len([p for p in predictions if p["confidence_score"] > 0.7])
+                        st.metric("High Confidence (>70%)", high_conf)
+                    with col_s3:
+                        low_conf = len([p for p in predictions if p["confidence_score"] < 0.4])
+                        st.metric("Low Confidence (<40%)", low_conf)
+                
+                    # Detailed results table
+                    st.markdown("### Detailed Results")
+                    results_df = pd.DataFrame([
+                        {
+                            "Image": p["image"],
+                            "Label": p["label"],
+                            "Confidence": p["confidence"],
+                            "Score": p["confidence_score"]
+                        }
+                        for p in predictions
+                    ])
+                    st.dataframe(results_df, use_container_width=True)
+                
                 else:
-                    pred_text, conf = predict_image_stub(img, None)
-                st.metric(label=pred_text, value=f"{conf*100:.1f}%")
-                st.markdown("**Metadata**")
-                md = extract_image_metadata(img, path if isinstance(path, Path) else None)
-                st.json(md)
-                st.markdown("**Actions**")
-                image_download_button(img, filename=f"{Path(path).stem}.png")
-                if st.button("View raw path"):
-                    st.write(str(path))
-            else:
-                st.info("Select an image from the gallery or upload one to see predictions and actions.")
+                    # Gallery view for data folder
+                    col1, col2 = st.columns([1, 2])
+
+                    with col1:
+                        st.subheader("Image gallery")
+                        # optional class filter
+                        class_filter = st.selectbox("Filter by class (if available)", options=["All"] + list(stats.get("class_counts", {}).keys()) if data_dir and data_dir.exists() else ["All"])
+                        cols = st.columns(3)
+                        for i, (path, img) in enumerate(images):
+                            # apply simple filter if classes are by parent folder name
+                            if class_filter != "All" and isinstance(path, Path) and path.parent.name != class_filter:
+                                continue
+                            with cols[i % 3]:
+                                caption = Path(path).name if path != "uploaded" else "uploaded"
+                                if st.button(f"Select: {caption}", key=f"sel_{i}"):
+                                    st.session_state.selected = i
+                                st.image(img, use_container_width=True, caption=caption)
+
+                    with col2:
+                        st.subheader("Selected image")
+                        sel = st.session_state.get("selected", 0) if images else None
+                        # Validate index is within bounds
+                        if sel is not None and images and sel < len(images):
+                            path, img = images[sel]
+                            st.image(img, caption=str(path), use_container_width=True)
+                            st.markdown("**Prediction**")
+                            if model_info[0]:
+                                pred_text, conf = predict_image_stub(img, model_info[2])
+                            else:
+                                pred_text, conf = predict_image_stub(img, None)
+                            st.metric(label=pred_text, value=f"{conf*100:.1f}%")
+                            st.markdown("**Metadata**")
+                            md = extract_image_metadata(img, path if isinstance(path, Path) else None)
+                            st.json(md)
+                            st.markdown("**Actions**")
+                            image_download_button(img, filename=f"{Path(path).stem}.png")
+                            if st.button("View raw path"):
+                                st.write(str(path))
+                        else:
+                            st.info("Select an image from the gallery to see predictions and actions.")
 
     st.markdown("---")
     st.caption("This app is a UI wrapper; to enable real predictions, place a PyTorch model in `models/` or implement a TensorFlow loader in `app_utils.py`.")

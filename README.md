@@ -89,8 +89,14 @@ Streamlit web app for crested myna image browsing, analytics, and gallery manage
 ## User workflow
 1) Launch the app (`streamlit run streamlit_app.py`).  
 2) In the sidebar, pick “Upload image” or point to `data/`.  
-3) Open **Analytics** tab to see dataset metrics, score distributions, and resolution correlations.  
-4) Open **Gallery** tab to browse tiles, filter by class, select an image, view its score, metadata JSON, and download the PNG.  
+3) If using "Upload image":
+  - Drag & drop or select **multiple images** at once
+  - Predictions display immediately in a grid with confidence badges (🟢 🟡 🔴)
+  - View batch summary: average confidence, high/low confidence counts
+  - See detailed results in a table for easy comparison
+4) If using "Project data folder":
+  - Open **Analytics** tab to see dataset metrics, score distributions, and resolution correlations
+  - Open **Gallery** tab to browse tiles, filter by class, select an image, view its score, metadata JSON, and download the PNG
 5) Adjust dataset contents (add/remove images) and refresh to update analytics.
 
 ## Suggested data layout
