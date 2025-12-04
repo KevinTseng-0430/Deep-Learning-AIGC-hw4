@@ -215,6 +215,115 @@ def predict_image_stub(pil_img, torch_model=None):
     return "Crested Myna", prob
 
 
+def infer_label_from_path(path: Path):
+    """Try to infer a ground-truth label from a file Path by using its parent folder name.
+
+    Returns normalized label string or None if not inferable.
+    """
+    try:
+        if path is None:
+            return None
+        # If path is a Path-like and has a parent folder name, use that
+        p = Path(path)
+        parent = p.parent.name.lower()
+        if parent:
+            return parent.replace(" ", "_")
+    except Exception:
+        pass
+    return None
+
+
+def prepare_predictions_dataframe(images, torch_model=None):
+    """Given images (list of (path_or_name, PIL.Image) tuples), run prediction and return a DataFrame.
+
+    DataFrame columns: image, label, confidence (0-1), confidence_pct, score, true_label (optional), is_correct (optional)
+    """
+    import pandas as _pd
+
+    rows = []
+    for path, img in images:
+        try:
+            label, conf = predict_image_stub(img, torch_model)
+        except Exception:
+            label, conf = "Crested Myna", 0.0
+
+        true_label = None
+        try:
+            # if path is a Path instance or string pointing into a folder, infer label
+            if isinstance(path, (str, Path)):
+                p = Path(path)
+                if p.exists():
+                    true_label = infer_label_from_path(p)
+                else:
+                    # for uploaded files we might not have a real path; skip
+                    true_label = None
+        except Exception:
+            true_label = None
+
+        is_correct = None
+        if true_label is not None:
+            # consider true if parent's label contains myna/crested keywords
+            tl = str(true_label).lower()
+            is_myna = ("crested" in tl and "myna" in tl) or ("myna" in tl) or ("crested_myna" in tl)
+            # Our predictor only emits "Crested Myna" label
+            pred_myna = (str(label).lower().find("crested") >= 0 or str(label).lower().find("myna") >= 0)
+            is_correct = (is_myna and pred_myna) or ((not is_myna) and (not pred_myna))
+
+        rows.append({
+            "image": str(path),
+            "label": label,
+            "confidence": float(conf),
+            "confidence_pct": f"{float(conf)*100:.1f}%",
+            "true_label": true_label,
+            "is_correct": is_correct,
+        })
+
+    df = _pd.DataFrame(rows)
+    return df
+
+
+def calibration_stats(df, n_bins: int = 10):
+    """Compute calibration data: for bins of predicted confidence, return average confidence and empirical accuracy.
+
+    Expects df with columns 'confidence' and 'is_correct' (boolean or None). If 'is_correct' is None/absent, accuracy per bin will be None.
+    Returns a dict with 'bin_mid', 'avg_conf', 'accuracy', 'count'.
+    """
+    import numpy as _np
+
+    if df is None or df.shape[0] == 0:
+        return {"bin_mid": [], "avg_conf": [], "accuracy": [], "count": []}
+
+    confs = df["confidence"].values
+    bins = _np.linspace(0.0, 1.0, n_bins + 1)
+    bin_ids = _np.digitize(confs, bins, right=True) - 1
+
+    bin_mid = []
+    avg_conf = []
+    accuracy = []
+    counts = []
+
+    for i in range(n_bins):
+        mask = bin_ids == i
+        count = int(mask.sum())
+        counts.append(count)
+        if count == 0:
+            bin_mid.append(float((bins[i] + bins[i+1]) / 2.0))
+            avg_conf.append(None)
+            accuracy.append(None)
+            continue
+
+        bin_mid.append(float((bins[i] + bins[i+1]) / 2.0))
+        avg_conf.append(float(confs[mask].mean()))
+
+        if "is_correct" in df.columns and df["is_correct"].notnull().any():
+            acc = float(df.loc[mask, "is_correct"].mean())
+            accuracy.append(acc)
+        else:
+            accuracy.append(None)
+
+    return {"bin_mid": bin_mid, "avg_conf": avg_conf, "accuracy": accuracy, "count": counts}
+
+
 def try_load_torch_model(models_dir: Path):
     """Attempt to find a PyTorch .pt model in models_dir and return (found:bool, name, model_object_or_none)
 

@@ -9,6 +9,8 @@ from app_utils import (
     extract_image_metadata,
     compute_detailed_stats,
     try_load_torch_model,
+    prepare_predictions_dataframe,
+    calibration_stats,
     is_streamlit_cloud,
     is_local_deployment,
 )
@@ -16,6 +18,7 @@ import io
 import base64
 import pandas as pd
 import plotly.express as px
+import plotly.graph_objects as go
 import requests
 from PIL import Image
 
@@ -73,30 +76,8 @@ def main():
     default_data_dir = workspace_root / "data"
 
     with st.sidebar:
-        st.header("Data source")
-        source = st.radio("Choose image source:", ("Upload image", "Project data folder"))
-        
-        data_dir = None
-        show_data_info = False
-        
-        if source == "Project data folder":
-            st.markdown("### Cloud Deployment Info 🌐")
-            if is_streamlit_cloud():
-                st.warning("""
-                ⚠️ **Running on Streamlit Cloud**
-                
-                The local `data/` folder is **not available** in cloud unless explicitly pushed to GitHub.
-                
-                **Recommended:** Use **"Upload image"** mode instead! ✨
-                """)
-                st.markdown("[📖 Full setup guide](https://github.com/KevinTseng-0430/Deep-Learning-AIGC-hw4/blob/main/DEPLOYMENT_GUIDE.md)")
-            else:
-                st.info("💻 Running locally — folder access should work fine!")
-            
-            custom_path = st.text_input("Enter data folder path:", "./data")
-            data_dir = Path(custom_path)
-            show_data_info = True
-
+        st.header("Upload images")
+        st.markdown("Upload multiple images in the main area to run predictions and see analytics.")
         st.markdown("---")
         st.header("Model")
         model_info = try_load_torch_model(Path(__file__).parent / "models")
@@ -108,65 +89,42 @@ def main():
         st.markdown("---")
         st.subheader("❓ Help & Support")
         st.markdown("""
-        **Issues with project data folder?**
+        Use the main Upload area to drag & drop images.
         
-        See [DEPLOYMENT_GUIDE.md](https://github.com/KevinTseng-0430/Deep-Learning-AIGC-hw4/blob/main/DEPLOYMENT_GUIDE.md) for:
-        - Cloud deployment setup
-        - Data folder troubleshooting  
-        - Cloud storage integration
-        
-        **Quick tip:** Use "Upload image" mode on Streamlit Cloud for best results! 🚀
+        **Note:** This app no longer supports reading a local `data/` folder directly — upload images instead (works both locally and on Streamlit Cloud).
         """)
 
     # Main layout with tabs: Analytics and Gallery
     tab_analytics, tab_gallery = st.tabs(["Analytics 📊", "Gallery 🖼️"])
 
-    # Load images depending on source
-    if source == "Upload image":
-            uploaded_files = st.file_uploader(
-                "📤 Upload images (support multiple files)",
-                type=["jpg", "jpeg", "png"],
-                accept_multiple_files=True
-            )
-            images = []
-            if uploaded_files:
-                for uploaded_file in uploaded_files:
-                    try:
-                        img = load_pil_image(uploaded_file)
-                        images.append((uploaded_file.name, img))
-                    except Exception as e:
-                        st.warning(f"Failed to load {uploaded_file.name}: {str(e)}")
-    else:
-        images = []
-        if show_data_info and data_dir:
-            # Try to load from folder with better error handling
-            loaded_images, error_msg = load_images_from_folder(str(data_dir))
-            
-            if error_msg:
-                st.warning(error_msg)
-                
-                # Provide helpful context
-                if not data_dir.exists():
-                    st.markdown("""
-                    ### 💡 Troubleshooting
-                    - **Local deployment**: Make sure the `data/` folder exists with images
-                    - **Streamlit Cloud**: Upload images using the "Upload image" option instead
-                    - **GitHub integration**: Push your `data/` folder to your repository
-                    """)
-            else:
-                images = loaded_images or []
+    # Upload-only flow: load images from uploaded files
+    uploaded_files = st.file_uploader(
+        "📤 Upload images (support multiple files)",
+        type=["jpg", "jpeg", "png"],
+        accept_multiple_files=True
+    )
+    images = []
+    if uploaded_files:
+        for uploaded_file in uploaded_files:
+            try:
+                img = load_pil_image(uploaded_file)
+                images.append((uploaded_file.name, img))
+            except Exception as e:
+                st.warning(f"Failed to load {uploaded_file.name}: {str(e)}")
 
-    # Analytics tab
+    # Analytics tab (now computed from uploaded images)
     with tab_analytics:
-        st.subheader("📊 Dataset overview")
-        if source == "Project data folder" and data_dir:
-            if data_dir.exists():
-                stats = compute_detailed_stats(data_dir)
-            else:
-                stats = None
-                st.error(f"Cannot access data folder: {data_dir}")
-        else:
-            stats = None
+        st.subheader("📊 Batch overview (from uploaded images)")
+        # Build lightweight stats from uploaded images
+        stats = {"total_images": 0, "class_counts": {}, "sizes": [], "formats": {}, "aspect_ratios": [], "file_sizes_mb": []}
+        if images:
+            stats["total_images"] = len(images)
+            for name, img in images:
+                md = extract_image_metadata(img)
+                stats["sizes"].append((md.get("width", 0), md.get("height", 0)))
+                stats["aspect_ratios"].append(md.get("aspect_ratio", 0))
+                fmt = md.get("format", "UNKNOWN")
+                stats["formats"][fmt] = stats["formats"].get(fmt, 0) + 1
         
         if stats and stats.get("total_images", 0) > 0:
             col_m1, col_m2, col_m3, col_m4 = st.columns(4)
@@ -219,12 +177,12 @@ def main():
             # Model Predictions (expanded)
             st.markdown("### 🤖 Crested Myna Detection Confidence")
             if images:
-                confs = []
-                for p, img in images:
-                    _, c = predict_image_stub(img, model_info[2] if model_info[0] else None)
-                    confs.append(c)
-                
-                df_myna = pd.DataFrame({"confidence": confs})
+                # Build a predictions DataFrame using helper (infers true labels when possible)
+                df_preds = prepare_predictions_dataframe(images, model_info[2] if model_info[0] else None)
+                df_myna = df_preds["confidence"] if not df_preds.empty else pd.Series(dtype=float)
+                # Normalize to a DataFrame for backwards compatibility with older visual code
+                if isinstance(df_myna, pd.Series):
+                    df_myna = pd.DataFrame({"confidence": df_myna.values})
                 
                 if len(df_myna) > 0:
                     # Row 1: Main confidence distribution for Crested Myna
@@ -331,11 +289,65 @@ def main():
                     }
                     df_summary_pred = pd.DataFrame(summary_stats)
                     st.dataframe(df_summary_pred, use_container_width=True)
+                    # Additional prediction charts
+                    st.markdown("### 🔍 Calibration & Confidence Analysis")
+
+                    # Calibration curve (requires inferred labels)
+                    cal = calibration_stats(df_preds if not df_preds.empty else None, n_bins=10)
+                    if cal["bin_mid"]:
+                        fig_cal = go.Figure()
+                        fig_cal.add_trace(go.Line(x=cal["bin_mid"], y=cal["avg_conf"], name="Avg predicted confidence", line=dict(color="#2ca02c")))
+                        if any(v is not None for v in cal["accuracy"]):
+                            fig_cal.add_trace(go.Scatter(x=cal["bin_mid"], y=cal["accuracy"], name="Empirical accuracy", mode="markers+lines", marker=dict(color="#636efa")))
+                        fig_cal.update_layout(title="Calibration: predicted confidence vs empirical accuracy", xaxis_title="Confidence bin midpoint", yaxis_title="Fraction / Confidence", yaxis=dict(range=[0, 1]))
+                        st.plotly_chart(fig_cal, use_container_width=True)
+                    else:
+                        st.info("Calibration plot requires predictions with inferred ground-truth labels (place images in class-labeled subfolders).")
+
+                    # Confidence CDF (cumulative distribution)
+                    st.markdown("#### Confidence CDF")
+                    if not df_preds.empty:
+                        sorted_conf = df_preds["confidence"].sort_values().reset_index(drop=True)
+                        cdf = pd.DataFrame({"confidence": sorted_conf, "cdf": (sorted_conf.rank(method='first') / len(sorted_conf))})
+                        fig_cdf = px.line(cdf, x="confidence", y="cdf", title="Cumulative distribution of predicted confidence")
+                        fig_cdf.update_xaxes(range=[0, 1])
+                        st.plotly_chart(fig_cdf, use_container_width=True)
+
+                    # Cumulative gain / lift if true labels are available
+                    st.markdown("#### Cumulative gain (requires inferred labels)")
+                    if not df_preds.empty and df_preds["true_label"].notnull().any():
+                        # treat true positives as those where true_label indicates myna
+                        df_temp = df_preds.copy()
+                        df_temp["is_true_myna"] = df_temp["true_label"].apply(lambda x: True if x and ("myna" in str(x) or "crested" in str(x)) else False)
+                        df_temp = df_temp.sort_values("confidence", ascending=False).reset_index(drop=True)
+                        df_temp["cum_true_positives"] = df_temp["is_true_myna"].cumsum()
+                        df_temp["pct_data"] = (df_temp.index + 1) / len(df_temp)
+                        fig_gain = px.line(df_temp, x="pct_data", y="cum_true_positives", title="Cumulative true positives by top-scoring fraction", labels={"pct_data":"Fraction of dataset (top-scoring)", "cum_true_positives":"Cumulative true positives"})
+                        st.plotly_chart(fig_gain, use_container_width=True)
+                    else:
+                        st.info("Cumulative gain requires class-labeled data in subfolders to infer true labels.")
+
+                    # Top / bottom examples
+                    st.markdown("### 🔝 Top & 🔚 Bottom predictions")
+                    if not df_preds.empty:
+                        topk = df_preds.sort_values("confidence", ascending=False).head(5)
+                        botk = df_preds.sort_values("confidence", ascending=True).head(5)
+                        col_top, col_bot = st.columns(2)
+                        with col_top:
+                            st.markdown("**Top 5 by confidence**")
+                            for _, r in topk.iterrows():
+                                st.write(f"{r['image']} — {r['confidence']:.3f}")
+                        with col_bot:
+                            st.markdown("**Bottom 5 by confidence**")
+                            for _, r in botk.iterrows():
+                                st.write(f"{r['image']} — {r['confidence']:.3f}")
+                    else:
+                        st.info("No prediction table available for top/bottom examples.")
                     
                     # Row 7: Resolution vs Confidence Analysis
                     st.markdown("#### Resolution vs Detection Confidence")
                     sizes = stats.get("sizes", [])
-                    if sizes and len(df_myna) == len(sizes):
+                    if sizes and not df_myna.empty and len(df_myna) == len(sizes):
                         # Build dataframe with image dimensions and confidence
                         widths = [s[0] for s in sizes]
                         heights = [s[1] for s in sizes]
@@ -436,166 +448,69 @@ def main():
             df_summary = pd.DataFrame(summary_table)
             st.dataframe(df_summary, use_container_width=True)
         else:
-            st.info("📤 **No data available**")
+            st.info("📤 No images uploaded yet — use the Upload area above to add images and run analytics.")
             st.markdown("""
-            ### How to use the Analytics tab:
-            
-            **Option 1: Upload Images** (Recommended for Streamlit Cloud)
-            - Switch to "Upload image" in the sidebar
-            - Drag & drop your images
-            - Analytics will show predictions
-            
-            **Option 2: Project Data Folder** (Requires local setup)
-            - Ensure you have a `data/` folder with images
-            - **On Streamlit Cloud**: This won't work unless data is committed to GitHub
-            - **Locally**: Place images in `./data/crested_myna/` or `./data/other/`
-            - Then select "Project data folder" in the sidebar
-            
-            ### ❓ Why can't I see my data folder on Streamlit Cloud?
-            
-            Streamlit Cloud deploys from GitHub. The `data/` folder:
-            - May not be committed to your repository
-            - May be listed in `.gitignore`
-            - May be too large for GitHub
-            
-            ### ✅ Solution
-            
-            1. **For demo**: Use the image upload feature
-            2. **For production**: 
-               - Store images in cloud storage (Google Cloud Storage, AWS S3, etc.)
-               - Or commit a sample dataset to GitHub (max ~50-100 images recommended)
+            ### How to use
+
+            - Drag & drop multiple images in the Upload area (top of the page)
+            - After upload, the Analytics tab will show confidence distributions, calibration (if class labels inferred), CDF, and resolution analysis
+            - The Gallery tab shows per-image predictions and download links
+
+            **Note:** This app no longer reads a local `data/` folder; please upload images instead (works on Streamlit Cloud and locally).
             """)
-            
-            # Show sample setup instructions
-            with st.expander("📝 See how to set up local data folder"):
-                st.code("""
-# Create folder structure
-mkdir -p data/crested_myna
-mkdir -p data/other
 
-# Add your images
-# Copy Crested Myna images to data/crested_myna/
-# Copy other bird images to data/other/
-
-# Run locally
-streamlit run streamlit_app.py
-                """, language="bash")
-
-    # Gallery tab
+    # Gallery tab (upload-only)
     with tab_gallery:
-            if not images:
-                st.info("📤 No images to show. Upload images or provide a valid data folder path on the sidebar.")
+        if not images:
+            st.info("📤 No images to show. Upload images in the main area to see predictions and the gallery.")
+        else:
+            st.subheader(f"🤖 Model Predictions ({len(images)} images)")
+
+            # Create prediction results (and a DataFrame) using helper
+            df_preds = prepare_predictions_dataframe(images, model_info[2] if model_info[0] else None)
+
+            # Grid of images with badges
+            cols = st.columns(3)
+            for idx, (path, img) in enumerate(images):
+                row = df_preds.iloc[idx] if not df_preds.empty and idx < len(df_preds) else None
+                with cols[idx % 3]:
+                    st.image(img, use_container_width=True)
+                    if row is not None:
+                        conf_score = float(row["confidence"])
+                        if conf_score > 0.7:
+                            badge_color = "🟢"
+                        elif conf_score > 0.4:
+                            badge_color = "🟡"
+                        else:
+                            badge_color = "🔴"
+                        st.markdown(f"**{badge_color} {row['label']}**")
+                        st.markdown(f"Confidence: **{conf_score*100:.1f}%**")
+                    else:
+                        st.markdown("Prediction unavailable")
+                    image_download_button(img, filename=f"{Path(path).stem}.png", button_text="⬇️ Download")
+
+            # Summary statistics for uploaded batch
+            st.markdown("---")
+            st.subheader("📊 Batch Summary")
+            col_s1, col_s2, col_s3 = st.columns(3)
+            with col_s1:
+                avg_conf = df_preds["confidence"].mean() if not df_preds.empty else 0.0
+                st.metric("Average Confidence", f"{avg_conf*100:.1f}%")
+            with col_s2:
+                high_conf = int((df_preds["confidence"] > 0.7).sum()) if not df_preds.empty else 0
+                st.metric("High Confidence (>70%)", high_conf)
+            with col_s3:
+                low_conf = int((df_preds["confidence"] < 0.4).sum()) if not df_preds.empty else 0
+                st.metric("Low Confidence (<40%)", low_conf)
+
+            # Detailed results table
+            st.markdown("### Detailed Results")
+            if not df_preds.empty:
+                results_df = df_preds[["image", "label", "confidence"]].rename(columns={"image": "Image", "label": "Label", "confidence": "Score"})
+                results_df["Confidence"] = (results_df["Score"] * 100).round(1).astype(str) + "%"
+                st.dataframe(results_df, use_container_width=True)
             else:
-                # Show different views based on source
-                if source == "Upload image":
-                    # Direct prediction grid for uploaded images
-                    st.subheader(f"🤖 Model Predictions ({len(images)} images)")
-                
-                    # Create prediction results
-                    predictions = []
-                    for idx, (path, img) in enumerate(images):
-                        if model_info[0]:
-                            pred_text, conf = predict_image_stub(img, model_info[2])
-                        else:
-                            pred_text, conf = predict_image_stub(img, None)
-                        predictions.append({
-                            "image": path,
-                            "label": pred_text,
-                            "confidence": f"{conf*100:.1f}%",
-                            "confidence_score": conf
-                        })
-                
-                    # Display predictions in a grid
-                    cols = st.columns(3)
-                    for idx, (path, img) in enumerate(images):
-                        pred = predictions[idx]
-                        with cols[idx % 3]:
-                            # Display image
-                            st.image(img, use_container_width=True)
-                        
-                            # Prediction badge
-                            conf_score = pred["confidence_score"]
-                            if conf_score > 0.7:
-                                badge_color = "🟢"
-                            elif conf_score > 0.4:
-                                badge_color = "🟡"
-                            else:
-                                badge_color = "🔴"
-                        
-                            st.markdown(f"**{badge_color} {pred['label']}**")
-                            st.markdown(f"Confidence: **{pred['confidence']}**")
-                        
-                            # Download button
-                            image_download_button(img, filename=f"{Path(path).stem}.png", button_text="⬇️ Download")
-                
-                    # Summary statistics for uploaded batch
-                    st.markdown("---")
-                    st.subheader("📊 Batch Summary")
-                    col_s1, col_s2, col_s3 = st.columns(3)
-                    with col_s1:
-                        avg_conf = sum(p["confidence_score"] for p in predictions) / len(predictions)
-                        st.metric("Average Confidence", f"{avg_conf*100:.1f}%")
-                    with col_s2:
-                        high_conf = len([p for p in predictions if p["confidence_score"] > 0.7])
-                        st.metric("High Confidence (>70%)", high_conf)
-                    with col_s3:
-                        low_conf = len([p for p in predictions if p["confidence_score"] < 0.4])
-                        st.metric("Low Confidence (<40%)", low_conf)
-                
-                    # Detailed results table
-                    st.markdown("### Detailed Results")
-                    results_df = pd.DataFrame([
-                        {
-                            "Image": p["image"],
-                            "Label": p["label"],
-                            "Confidence": p["confidence"],
-                            "Score": p["confidence_score"]
-                        }
-                        for p in predictions
-                    ])
-                    st.dataframe(results_df, use_container_width=True)
-                
-                else:
-                    # Gallery view for data folder
-                    col1, col2 = st.columns([1, 2])
-
-                    with col1:
-                        st.subheader("Image gallery")
-                        # optional class filter
-                        class_filter = st.selectbox("Filter by class (if available)", options=["All"] + list(stats.get("class_counts", {}).keys()) if data_dir and data_dir.exists() else ["All"])
-                        cols = st.columns(3)
-                        for i, (path, img) in enumerate(images):
-                            # apply simple filter if classes are by parent folder name
-                            if class_filter != "All" and isinstance(path, Path) and path.parent.name != class_filter:
-                                continue
-                            with cols[i % 3]:
-                                caption = Path(path).name if path != "uploaded" else "uploaded"
-                                if st.button(f"Select: {caption}", key=f"sel_{i}"):
-                                    st.session_state.selected = i
-                                st.image(img, use_container_width=True, caption=caption)
-
-                    with col2:
-                        st.subheader("Selected image")
-                        sel = st.session_state.get("selected", 0) if images else None
-                        # Validate index is within bounds
-                        if sel is not None and images and sel < len(images):
-                            path, img = images[sel]
-                            st.image(img, caption=str(path), use_container_width=True)
-                            st.markdown("**Prediction**")
-                            if model_info[0]:
-                                pred_text, conf = predict_image_stub(img, model_info[2])
-                            else:
-                                pred_text, conf = predict_image_stub(img, None)
-                            st.metric(label=pred_text, value=f"{conf*100:.1f}%")
-                            st.markdown("**Metadata**")
-                            md = extract_image_metadata(img, path if isinstance(path, Path) else None)
-                            st.json(md)
-                            st.markdown("**Actions**")
-                            image_download_button(img, filename=f"{Path(path).stem}.png")
-                            if st.button("View raw path"):
-                                st.write(str(path))
-                        else:
-                            st.info("Select an image from the gallery to see predictions and actions.")
+                st.info("No prediction data available for the uploaded images.")
 
     st.markdown("---")
     st.caption("This app is a UI wrapper; to enable real predictions, place a PyTorch model in `models/` or implement a TensorFlow loader in `app_utils.py`.")
