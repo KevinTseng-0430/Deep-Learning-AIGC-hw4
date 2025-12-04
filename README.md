@@ -2,6 +2,8 @@
 
 Streamlit web app for crested myna image browsing, analytics, and gallery management, described via a CRISP-DM-style structure. This app runs locally, works with simple folder-based datasets, and provides confidence-style scores via a built-in heuristic when no external model is present.
 
+Streamlit APP: https://deep-learning-aigc-hw4.streamlit.app/
+
 ## Citation / Reference
 - Based on the Colab demo “Demo02 — Transfer Learning Crested Myna Recognizer”: https://colab.research.google.com/github/yenlung/AI-Demo/blob/master/%E3%80%90Demo02%E3%80%91%E9%81%B7%E7%A7%BB%E5%BC%8F%E5%AD%B8%E7%BF%92%E5%81%9A%E5%85%AB%E5%93%A5%E8%BE%A8%E8%AD%98%E5%99%A8.ipynb#scrollTo=Sftnku6_7Feg
 
