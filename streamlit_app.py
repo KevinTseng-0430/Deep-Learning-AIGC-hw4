@@ -115,6 +115,7 @@ def main():
     # Analytics tab (now computed from uploaded images)
     with tab_analytics:
         st.subheader("📊 Batch overview (from uploaded images)")
+        st.markdown("影像資料在 https://github.com/KevinTseng-0430/Deep-Learning-AIGC-hw4/tree/main/data")
         # Build lightweight stats from uploaded images
         stats = {"total_images": 0, "class_counts": {}, "sizes": [], "formats": {}, "aspect_ratios": [], "file_sizes_mb": []}
         if images:
